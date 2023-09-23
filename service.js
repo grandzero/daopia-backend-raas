@@ -9,8 +9,9 @@ const path = require('path');
 const multer = require('multer');
 const sleep = require('util').promisify(setTimeout);
 const dealStatusContract = require('./dealStatusABI.json');
+const daopiaContractABI = require('./daopiaABI.json');
 const port = 1337;
-const contractName = "DealStatus";
+
 const contractInstance = "0x87E96008af3D46A911B970Eef99237187bE268Ed"; // The user will also input
 
 const LighthouseAggregator = require('./lighthouseAggregator.js');
@@ -25,6 +26,7 @@ let isDealCreationListenerActive = false;
 app.listen(port, () => {
   if (!isDealCreationListenerActive) {
     isDealCreationListenerActive = true;
+    initializeOnChainSubmitEvent();
     initializeDealCreationListener();
     initializeDataRetrievalListener();
     storedNodeJobs = loadJobsFromState(); 
@@ -46,45 +48,45 @@ app.use(
 );
 
 // Registers jobs for node to periodically execute jobs (every 12 hours)
-app.post('/api/register_job', upload.none(), async (req, res) => {
-  // Capture when the request was received for default enddate
-  const requestReceivedTime = new Date();
-  // Default end date is 1 month from the request received time
-  const defaultEndDate = requestReceivedTime.setMonth(requestReceivedTime.getMonth() + 1);
+// app.post('/api/register_job', upload.none(), async (req, res) => {
+//   // Capture when the request was received for default enddate
+//   const requestReceivedTime = new Date();
+//   // Default end date is 1 month from the request received time
+//   const defaultEndDate = requestReceivedTime.setMonth(requestReceivedTime.getMonth() + 1);
 
-  // Create a new job object from the request body
-  // If certain fields are not present, use hardcoded defaults.
-  let newJob = {
-    cid: req.body.cid,
-    endDate: req.body.endDate || defaultEndDate,
-    jobType: req.body.jobType || "all",
-    replicationTarget: req.body.replicationTarget || 2,
-    aggregator: "lighthouse",
-    epochs: req.body.epochs || 4,
-  };
+//   // Create a new job object from the request body
+//   // If certain fields are not present, use hardcoded defaults.
+//   let newJob = {
+//     cid: req.body.cid,
+//     endDate: req.body.endDate || defaultEndDate,
+//     jobType: req.body.jobType || "all",
+//     replicationTarget: req.body.replicationTarget || 2,
+//     aggregator: "lighthouse",
+//     epochs: req.body.epochs || 4,
+//   };
 
-  if (newJob.cid != null && newJob.cid != "") {
-    try {
-      ethers.utils.toUtf8Bytes(newJob.cid); // this will throw an error if cid is not valid bytes or hex string
-    } catch {
-      console.log("Error: CID must be a hexadecimal string or bytes");
-      return res.status(400).json({
-          error: 'CID must be of a valid deal'
-      });
-    }
-  } else {
-    return res.status(400).json({
-      error: 'CID cannot be empty'
-    });
-  }
+//   if (newJob.cid != null && newJob.cid != "") {
+//     try {
+//       ethers.utils.toUtf8Bytes(newJob.cid); // this will throw an error if cid is not valid bytes or hex string
+//     } catch {
+//       console.log("Error: CID must be a hexadecimal string or bytes");
+//       return res.status(400).json({
+//           error: 'CID must be of a valid deal'
+//       });
+//     }
+//   } else {
+//     return res.status(400).json({
+//       error: 'CID cannot be empty'
+//     });
+//   }
 
-  console.log("Submitting job to aggregator contract with CID: ", newJob.cid);
-  await registerJob(newJob);
+//   console.log("Submitting job to aggregator contract with CID: ", newJob.cid);
+//   await registerJob(newJob);
 
-  return res.status(201).json({
-    message: "Job registered successfully."
-  });
-});
+//   return res.status(201).json({
+//     message: "Job registered successfully."
+//   });
+// });
 
 // Uploads a file to the aggregator if it hasn't already been uploaded
 app.post('/api/uploadFile', upload.single('file'), async (req, res) => {
@@ -169,11 +171,23 @@ function saveJobsToState() {
 
 async function registerJob(newJob) {
   // TODO: Add validation for the new job, for example:
+
+  const requiredKeys = ['cid', 'endDate', 'jobType', 'replicationTarget'];
   // 1. Check if newJob is an object with all the required properties
+  let isValid = true;
+  Object.keys(newJob).forEach(key => {
+    if (!requiredKeys.includes(key)) {
+      isValid = false;
+    }
+  });
   // 2. Check if newJob.cid is a hexadecimal string
+  if (ethers.isHexString(newJob.cid) === false) isValid = false;
   // 3. Check if newJob.endDate is a valid date
+  if (isNaN(new Date(newJob.endDate).getTime())) isValid = false;
   // 4. Check if newJob.jobType is either 'renew' or 'replication'
+  if (newJob.jobType !== 'renew' && newJob.jobType !== 'replication' && newJob.jobType !== 'all') isValid = false;
   // 5. Check if newJob.replicationTarget is a number
+  if (typeof newJob.replicationTarget !== 'number' && newJob.replicationTarget > 2 && newJob.replicationTarget<1) isValid = false;
   console.log("Executing deal creation job with CID: ", newJob.cid);
 
   const dealStatus = new ethers.Contract(contractInstance,dealStatusContract.abi, provider);
@@ -281,7 +295,42 @@ async function executeRepairJob(job) {
   });
   console.log("Repair successful");
 }
+async function initializeOnChainSubmitEvent(){
+  const dealStatus = new ethers.Contract(contractInstance,dealStatusContract.abi, provider);
+  function registerJobWhenSubmitCalled(cid, transactionId, jobType, dao){
+      // Capture when the request was received for default enddate
+      
+      (async()=>{
+        const daopia = new ethers.Contract(dao,daopiaContractABI, provider);
+        let daoDealDetails = await daopia.dealDetails(dao);
+        const requestReceivedTime = new Date();
+      // Default end date is 1 month from the request received time
+      const defaultEndDate = requestReceivedTime.setMonth(requestReceivedTime.getMonth() + 1);
+      let newJob = {
+        cid: cid,
+        endDate:  defaultEndDate,
+        jobType:  "all",
+        replicationTarget: daoDealDetails?.num_copies || 2,
+        aggregator: "lighthouse",
+        epochs: 4,
+      };
+      if (newJob.cid != null && newJob.cid != "") {
+        try {
+          ethers.utils.toUtf8Bytes(newJob.cid); // this will throw an error if cid is not valid bytes or hex string
+          console.log("Submitting job to aggregator contract with CID: ", newJob.cid);
+          await registerJob(newJob);
+        } catch {
+          console.log("Error: CID must be a hexadecimal string or bytes");
+        }
+      }
+      })()
+      
+  }
 
+  if (dealStatus.listenerCount("SubmitFromDao") === 0) {
+    dealStatus.once("SubmitFromDao", registerJobWhenSubmitCalled);
+  }
+}
 // Initialize the listener for the Deal Creation event
 async function initializeDealCreationListener() {
   const dealStatus = new ethers.Contract(contractInstance,dealStatusContract.abi, provider)//new ethers.Contract(contractInstance,dealStatusContract.abi, provider);
