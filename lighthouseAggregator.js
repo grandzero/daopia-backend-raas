@@ -5,7 +5,7 @@ const { ethers } = require("ethers");
 const EventEmitter = require('events');
 const sleep = require('util').promisify(setTimeout);
 const lighthouse = require('@lighthouse-web3/sdk');
-const contractInstance = "0x3f2E4412ccD854175ae6C02a6d286D279C5042D5";
+const contractInstance = "0x2F3e38b0772E8077Bba1884Ee3f286F72369b35C";
 const dealStatusContract = require('./dealStatusABI.json');
 const daopiaContractABI = require('./daopiaABI.json');
 // Location of fetched data for each CID from edge

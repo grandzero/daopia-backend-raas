@@ -14,9 +14,9 @@ const dealStatusContract = require('./dealStatusABI.json');
 const daopiaContractABI = require('./daopiaABI.json');
 const {Database} = require("@tableland/sdk");
 const port = 1337;
-const tableName = "daopia_314159_372"
+const tableName = "daopia_314159_427"
 
-const contractInstance = "0x4Fad33066A2d209A265F12394DB03955Ff638b9f"; // The user will also input
+const contractInstance = "0x404d49b3c515f7506F3274C0280cf65fA294D0ef"; // The user will also input
 
 const LighthouseAggregator = require('./lighthouseAggregator.js');
 const upload = multer({ dest: 'temp/' }); // Temporary directory for uploads
@@ -95,7 +95,7 @@ app.use(
 app.get('/api/info', upload.none() ,async (req, res) => {
  try{ 
 
-  const daopia = new ethers.Contract("0x3f2E4412ccD854175ae6C02a6d286D279C5042D5", daopiaContractABI.abi, provider);
+  const daopia = new ethers.Contract("0x2F3e38b0772E8077Bba1884Ee3f286F72369b35C", daopiaContractABI.abi, provider);
   
   // const db = new Database({autoWait: false, signer: provider});
 
@@ -130,7 +130,7 @@ app.post('/api/uploadFile', upload.single('file'), async (req, res) => {
     // Optionally, you can remove the file from the temp directory if needed
     
     // Change recorded CID in tableland
-    const daopia = new ethers.Contract("0x3f2E4412ccD854175ae6C02a6d286D279C5042D5", daopiaContractABI.abi, provider);
+    const daopia = new ethers.Contract("0x2F3e38b0772E8077Bba1884Ee3f286F72369b35C", daopiaContractABI.abi, provider);
     const db = new Database({autoWait: false, signer: provider});
 
     const { results } = await db.prepare(`SELECT * FROM ${tableName};`).all();
