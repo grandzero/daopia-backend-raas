@@ -5,7 +5,9 @@ const { ethers } = require("ethers");
 const EventEmitter = require('events');
 const sleep = require('util').promisify(setTimeout);
 const lighthouse = require('@lighthouse-web3/sdk');
-
+const contractInstance = "0x3f2E4412ccD854175ae6C02a6d286D279C5042D5";
+const dealStatusContract = require('./dealStatusABI.json');
+const daopiaContractABI = require('./daopiaABI.json');
 // Location of fetched data for each CID from edge
 const dataDownloadDir = path.join(__dirname, 'download');
 const lighthouseDealDownloadEndpoint = process.env.LIGHTHOUSE_DEAL_DOWNLOAD_ENDPOINT;
@@ -15,6 +17,18 @@ if (!lighthouseDealDownloadEndpoint) {
 }
 
 let stateFilePath = "./cache/lighthouse_agg_state.json";
+
+// Helper Functions
+
+const signAuthMessage = async (publicKey, privateKey) => {
+    const provider = new ethers.JsonRpcProvider();
+    const signer = new ethers.Wallet(privateKey, provider);
+    const messageRequested = (await lighthouse.getAuthMessage(publicKey)).data.message;
+    const signedMessage = await signer.signMessage(messageRequested);
+    return signedMessage;
+  }
+
+
 
 /// A new aggregator implementation should be created for each aggregator contract
 class LighthouseAggregator {
@@ -138,12 +152,52 @@ class LighthouseAggregator {
         this.eventEmitter.emit('error', new Error('All retries failed, totaling: ' + maxRetries));
     }    
 
-    async uploadFileAndMakeDeal(filePath) {
+    async uploadFileAndMakeDeal({filePath, repair_threshold, renew_threshold, dao_address}) {
         try {
-            const dealParams = {miner:[ process.env.MINER ], repair_threshold: null, renew_threshold: null, network: process.env.NETWORK};
-            const response = await lighthouse.uploadEncrypted(filePath, process.env.LIGHTHOUSE_API_KEY, false, dealParams);
+            let tempWallet = ethers.Wallet.createRandom();
+            const providerWoWallet = new ethers.JsonRpcProvider(process.env.LOTUS_RPC);
+            const provider = new ethers.Wallet(tempWallet.privateKey, providerWoWallet);
+            const daopia = new ethers.Contract(contractInstance, daopiaContractABI.abi, provider);
+            let daoDealDetails = await daopia.dealDetails(dao_address);
+            const dealParams = {miner:[ process.env.MINER ], repair_threshold: daoDealDetails?.repair_threshold || 28800 , renew_threshold: daoDealDetails?.renew_threshold || 28800, network: process.env.NETWORK};
+            // Authenticate
+            let signedMessage = await signAuthMessage(tempWallet.address, tempWallet.privateKey);
+
+            // Upload the file to Lighthouse
+            
+            const response = await lighthouse.uploadEncrypted(filePath, process.env.LIGHTHOUSE_API_KEY, tempWallet.address, signedMessage, dealParams);
             const lighthouse_cid = response.data.Hash;
             console.log("Uploaded file, lighthouse_cid: ", lighthouse_cid);
+            signedMessage = await signAuthMessage(tempWallet.address, tempWallet.privateKey);
+            // Apply access conditions using the daopia smart contract
+            const conditions = [
+                {
+                  id: 1,
+                  chain: "calibration",
+                  method: "getUser",
+                  standardContractType: "Custom",
+                  contractAddress:
+                    "0xF915BE9fD7CcfC27515a06FEd213e008a5F78502".toLowerCase(),
+                  returnValueTest: {
+                    comparator: "==",
+                    value: "1",
+                  },
+                  parameters: [
+                    ":userAddress",
+                    dao_address.toLowerCase(),
+                  ],
+                  inputArrayType: ["address", "address"],
+                  outputType: "uint256",
+                },
+              ];
+              const aggregator = "([1])";
+              const applyAccess = await lighthouse.applyAccessConditions(
+                tempWallet.address,
+                lighthouse_cid,
+                signedMessage,
+                conditions,
+                aggregator
+                );
             return lighthouse_cid;
         } catch (error) {
             console.error('An error occurred:', error);

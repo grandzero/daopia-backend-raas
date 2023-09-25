@@ -1,7 +1,9 @@
 const express = require('express')
 const {ethers}  = require("ethers");
 require('dotenv').config();
-const provider = new ethers.JsonRpcProvider(process.env.LOTUS_RPC);
+console.log(process.env.LOTUS_RPC);
+const providerWoWallet = new ethers.providers.JsonRpcProvider(process.env.LOTUS_RPC, {name: "calibration",chainId: 314159});
+const provider = new ethers.Wallet(process.env.PRIVATE_KEY, providerWoWallet);
 const axios = require('axios');
 const app = express();
 const fs = require('fs');
@@ -10,9 +12,11 @@ const multer = require('multer');
 const sleep = require('util').promisify(setTimeout);
 const dealStatusContract = require('./dealStatusABI.json');
 const daopiaContractABI = require('./daopiaABI.json');
+const {Database} = require("@tableland/sdk");
 const port = 1337;
+const tableName = "daopia_314159_372"
 
-const contractInstance = "0x87E96008af3D46A911B970Eef99237187bE268Ed"; // The user will also input
+const contractInstance = "0x4Fad33066A2d209A265F12394DB03955Ff638b9f"; // The user will also input
 
 const LighthouseAggregator = require('./lighthouseAggregator.js');
 const upload = multer({ dest: 'temp/' }); // Temporary directory for uploads
@@ -88,6 +92,29 @@ app.use(
 //   });
 // });
 
+app.get('/api/info', upload.none() ,async (req, res) => {
+ try{ 
+
+  const daopia = new ethers.Contract("0x3f2E4412ccD854175ae6C02a6d286D279C5042D5", daopiaContractABI.abi, provider);
+  
+  // const db = new Database({autoWait: false, signer: provider});
+
+  // const { results } = await db.prepare(`SELECT * FROM ${tableName};`).all();
+  //console.log(results);
+  //let daoDealDetails = await daopia.dealDetails("0x3C5eDcD0970826AF691ea6Cb46DdCe7486b9ac35".toLowerCase());
+  let tableId = await daopia.proposalsTableId();
+  res.status(200).json({
+    tableId: tableId.toString(),
+    // results: results
+  });
+}catch(e){
+  console.log(e);
+  res.status(400).json({
+    error: 'Error retrieving jobs'
+  });
+}
+})
+
 // Uploads a file to the aggregator if it hasn't already been uploaded
 app.post('/api/uploadFile', upload.single('file'), async (req, res) => {
   // At the moment, this only handles lighthouse.
@@ -101,6 +128,20 @@ app.post('/api/uploadFile', upload.single('file'), async (req, res) => {
     // Upload the file to the aggregator
     const lighthouse_cid = await lighthouseAggregatorInstance.uploadFileAndMakeDeal(filePath);
     // Optionally, you can remove the file from the temp directory if needed
+    
+    // Change recorded CID in tableland
+    const daopia = new ethers.Contract("0x3f2E4412ccD854175ae6C02a6d286D279C5042D5", daopiaContractABI.abi, provider);
+    const db = new Database({autoWait: false, signer: provider});
+
+    const { results } = await db.prepare(`SELECT * FROM ${tableName};`).all();
+    let record = results.some(result => result.cid === lighthouse_cid);
+    let isRecorded = results.some(result => result.id === req.id && result.dao == req.dao);
+    if(!isRecorded || record){
+      return res.status(400).json({
+        error: 'Error Occured'
+      });
+    }
+    await daopia.changeCidOnProposalTable(req?.dao, lighthouse_cid, req.id);
     fs.unlinkSync(filePath);
 
     return res.status(201).json({
