@@ -20,10 +20,11 @@ let stateFilePath = "./cache/lighthouse_agg_state.json";
 
 // Helper Functions
 
-const signAuthMessage = async (publicKey, privateKey) => {
-    const provider = new ethers.JsonRpcProvider();
-    const signer = new ethers.Wallet(privateKey, provider);
+const signAuthMessage = async (publicKey, provider) => {
+    
+    const signer = provider;
     const messageRequested = (await lighthouse.getAuthMessage(publicKey)).data.message;
+    console.log("messageRequested: ", messageRequested);
     const signedMessage = await signer.signMessage(messageRequested);
     return signedMessage;
   }
@@ -152,23 +153,29 @@ class LighthouseAggregator {
         this.eventEmitter.emit('error', new Error('All retries failed, totaling: ' + maxRetries));
     }    
 
-    async uploadFileAndMakeDeal({filePath, repair_threshold, renew_threshold, dao_address}) {
+    async uploadFileAndMakeDeal({filePath,dao_address}) {
         try {
-            let tempWallet = ethers.Wallet.createRandom();
-            const providerWoWallet = new ethers.JsonRpcProvider(process.env.LOTUS_RPC);
-            const provider = new ethers.Wallet(tempWallet.privateKey, providerWoWallet);
+          
+            const providerWoWallet = new ethers.providers.JsonRpcProvider(process.env.LOTUS_RPC);
+            const provider = new ethers.Wallet(process.env.PRIVATE_KEY, providerWoWallet);
             const daopia = new ethers.Contract(contractInstance, daopiaContractABI.abi, provider);
+            console.log("Worked until here");
+            console.log("dao_address: ", dao_address)
+            console.log("Filepath",filePath)
             let daoDealDetails = await daopia.dealDetails(dao_address);
+            
             const dealParams = {miner:[ process.env.MINER ], repair_threshold: daoDealDetails?.repair_threshold || 28800 , renew_threshold: daoDealDetails?.renew_threshold || 28800, network: process.env.NETWORK};
             // Authenticate
-            let signedMessage = await signAuthMessage(tempWallet.address, tempWallet.privateKey);
-
+            console.log("signing key")
+            console.log(dealParams)
+            let signedMessage = await signAuthMessage(provider.address, provider);
+            console.log("signed message: ", signedMessage);
             // Upload the file to Lighthouse
             
-            const response = await lighthouse.uploadEncrypted(filePath, process.env.LIGHTHOUSE_API_KEY, tempWallet.address, signedMessage, dealParams);
-            const lighthouse_cid = response.data.Hash;
+            const response = await lighthouse.uploadEncrypted(filePath, process.env.LIGHTHOUSE_API_KEY, provider.address, signedMessage, dealParams);
+            const lighthouse_cid = response.data[0].Hash;
             console.log("Uploaded file, lighthouse_cid: ", lighthouse_cid);
-            signedMessage = await signAuthMessage(tempWallet.address, tempWallet.privateKey);
+            signedMessage = await signAuthMessage(provider.address,  provider);
             // Apply access conditions using the daopia smart contract
             const conditions = [
                 {
@@ -177,7 +184,7 @@ class LighthouseAggregator {
                   method: "getUser",
                   standardContractType: "Custom",
                   contractAddress:
-                    "0xF915BE9fD7CcfC27515a06FEd213e008a5F78502".toLowerCase(),
+                    contractInstance.toLowerCase(),
                   returnValueTest: {
                     comparator: "==",
                     value: "1",
@@ -191,8 +198,8 @@ class LighthouseAggregator {
                 },
               ];
               const aggregator = "([1])";
-              const applyAccess = await lighthouse.applyAccessConditions(
-                tempWallet.address,
+              const applyAccess = await lighthouse.applyAccessCondition(
+                provider.address,
                 lighthouse_cid,
                 signedMessage,
                 conditions,

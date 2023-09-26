@@ -123,25 +123,26 @@ app.post('/api/uploadFile', upload.single('file'), async (req, res) => {
 
   // req.file.path will contain the local file path of the uploaded file on the server
   const filePath = req.file.path;
-
+  // console.log(req.file.path)
+  // console.log(req.body)
   try {
     // Upload the file to the aggregator
-    const lighthouse_cid = await lighthouseAggregatorInstance.uploadFileAndMakeDeal(filePath);
+    const lighthouse_cid = await lighthouseAggregatorInstance.uploadFileAndMakeDeal({filePath, dao_address: req?.body?.dao});
     // Optionally, you can remove the file from the temp directory if needed
-    
+    console.log("File uploaded successfully", lighthouse_cid);
     // Change recorded CID in tableland
     const daopia = new ethers.Contract("0x2F3e38b0772E8077Bba1884Ee3f286F72369b35C", daopiaContractABI.abi, provider);
     const db = new Database({autoWait: false, signer: provider});
 
     const { results } = await db.prepare(`SELECT * FROM ${tableName};`).all();
     let record = results.some(result => result.cid === lighthouse_cid);
-    let isRecorded = results.some(result => result.id === req.id && result.dao == req.dao);
+    let isRecorded = results.some(result => result.id === req?.body?.id && result.dao == req?.body?.dao);
     if(!isRecorded || record){
       return res.status(400).json({
         error: 'Error Occured'
       });
     }
-    await daopia.changeCidOnProposalTable(req?.dao, lighthouse_cid, req.id);
+    await daopia.changeCidOnProposalTable(req?.body?.dao, lighthouse_cid, req?.body?.id);
     fs.unlinkSync(filePath);
 
     return res.status(201).json({
