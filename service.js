@@ -334,9 +334,9 @@ async function initializeOnChainSubmitEvent(){
   const dealStatus = new ethers.Contract(contractInstance,dealStatusContract.abi, provider);
   function registerJobWhenSubmitCalled(cid, transactionId, jobType, dao){
       // Capture when the request was received for default enddate
-      
+      console.log(cid,dao)
       (async()=>{
-        const daopia = new ethers.Contract(dao,daopiaContractABI, provider);
+        const daopia = new ethers.Contract("0x2F3e38b0772E8077Bba1884Ee3f286F72369b35C",daopiaContractABI, provider);
         let daoDealDetails = await daopia.dealDetails(dao);
         const requestReceivedTime = new Date();
       // Default end date is 1 month from the request received time
