@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const sleep = require('util').promisify(setTimeout);
+const cors = require('cors');
 const dealStatusContract = require('./dealStatusABI.json');
 const daopiaContractABI = require('./daopiaABI.json');
 const {Database} = require("@tableland/sdk");
@@ -26,7 +27,7 @@ let storedNodeJobs;
 
 let lighthouseAggregatorInstance = new LighthouseAggregator();
 let isDealCreationListenerActive = false;
-
+app.use(cors());
 app.listen(port, () => {
   if (!isDealCreationListenerActive) {
     isDealCreationListenerActive = true;
@@ -132,18 +133,10 @@ app.post('/api/uploadFile', upload.single('file'), async (req, res) => {
     console.log("File uploaded successfully", lighthouse_cid);
     // Change recorded CID in tableland
     const daopia = new ethers.Contract("0x2F3e38b0772E8077Bba1884Ee3f286F72369b35C", daopiaContractABI.abi, provider);
-    const db = new Database({autoWait: false, signer: provider});
 
-    const { results } = await db.prepare(`SELECT * FROM ${tableName};`).all();
-    let record = results.some(result => result.cid === lighthouse_cid);
-    let isRecorded = results.some(result => result.id === req?.body?.id && result.dao == req?.body?.dao);
-    if(!isRecorded || record){
-      return res.status(400).json({
-        error: 'Error Occured'
-      });
-    }
     await daopia.changeCidOnProposalTable(req?.body?.dao, lighthouse_cid, req?.body?.id);
     fs.unlinkSync(filePath);
+    console.log("Unlink successfull")
 
     return res.status(201).json({
       message: "Job registered successfully.",
@@ -151,7 +144,7 @@ app.post('/api/uploadFile', upload.single('file'), async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).send('An error occurred');
+    return res.status(500).send('An error occurred');
   }
 });
 
